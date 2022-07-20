@@ -1,28 +1,85 @@
 const mongoose = require('mongoose')
+const bcrypt = require('bcrypt')
+const saltRounds = 10
+const jwt = require('jsonwebtoken')
 
 const userSchema = mongoose.Schema({
   name: {
     type: String,
-    maxLength: 50,
+    maxlength: 50,
   },
   email: {
     type: String,
+    trim: true, //dhsdb 1541 @naver.com 을 dhsdb1541@naver.com로 trim
+    unique: 1,
+  },
+  password: {
+    type: String,
+    minLength: 5,
+  },
+  lastName: {
+    type: String,
     maxLength: 50,
-    trim: true, // space를 없애줌
-    unique: 1, // 같은 값은 하나만 존재함
   },
   role: {
     type: Number,
     default: 0,
   },
+  image: String,
   token: {
     type: String,
   },
   tokenExp: {
-    type: Numeber,
+    type: Number,
   },
-}),
+})
 
-const user = mongoose.model('user', userSchema) // userSchema를 model로 감싸줌
+//save 메소드가 실행되기전에 비밀번호를 암호화하는 로직을 짜야한다
+userSchema.pre('save', function (next) {
+  let user = this
 
-module.exports = { user } // user라는 모델을 본 파일 밖에서도 사용할 수 있도록 export
+  //model 안의 paswsword가 변환될때만 암호화
+  if (user.isModified('password')) {
+    bcrypt.genSalt(saltRounds, function (err, salt) {
+      if (err) return next(err)
+      bcrypt.hash(user.password, salt, function (err, hash) {
+        if (err) return next(err)
+        user.password = hash
+        next()
+      })
+    })
+  } else {
+    next()
+  }
+})
+
+userSchema.methods.comparePassword = function (plainPassword) {
+  //plainPassword를 암호화해서 현재 비밀번호화 비교
+  return bcrypt
+    .compare(plainPassword, this.password)
+    .then((isMatch) => isMatch)
+    .catch((err) => err)
+}
+
+userSchema.methods.generateToken = function () {
+  // let user = this;
+  const token = jwt.sign(this._id.toHexString(), 'secretToken')
+  this.token = token
+  return this.save()
+    .then((user) => user)
+    .catch((err) => err)
+}
+
+userSchema.statics.findByToken = function (token) {
+  let user = this
+  return jwt.verify(token, 'secretToken', function (err, decoded) {
+    return user
+      .findOne({ _id: decoded, token: token })
+      .then((user) => user)
+      .catch((err) => err)
+  })
+}
+
+const User = mongoose.model('User', userSchema)
+
+module.exports = { User }
